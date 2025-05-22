@@ -25,7 +25,7 @@ std::vector<int> binary_pattern(
   return p_binary;
 }
 
-std::vector<std::vector<float>> build_matrix(
+std::vector<std::vector<float>> build_matrix( //prima implementazione della costruzione della matrice
     int const& N, std::vector<std::vector<int>> patterns) {
   std::vector<std::vector<float>> matrix(N, std::vector<float>(N));
   for (long unsigned int mu{0}; mu < patterns.size();
@@ -35,12 +35,35 @@ std::vector<std::vector<float>> build_matrix(
         if (i == j) {
           matrix[i][j] = 0;
         } else {
-          matrix[i][j] = std::accumulate( //implementazione della somma tra il prodotto fra neuroni con accumulate
-              patterns.begin(), patterns.end(), 0.,
-              [N, i, j](double acc, const std::vector<int>&pattern) {
-                return acc + ((1.0 / N) * (pattern[i]) * (pattern[j]));
-              });
+          matrix[i][j] =
+              std::accumulate(  // implementazione della somma tra il prodotto
+                                // fra neuroni con accumulate
+                  patterns.begin(), patterns.end(), 0.,
+                  [N, i, j](double acc, const std::vector<int>& pattern) {
+                    return acc + ((1.0 / N) * (pattern[i]) * (pattern[j]));
+                  });
         }
+      }
+    }
+  }
+  return matrix;
+}
+
+std::vector<std::vector<float>> build_alter( // costruzione della matrice sfruttando la simmetria
+    int const& N, std::vector<std::vector<int>> const& patterns) {
+  std::vector<std::vector<float>> matrix(N, std::vector<float>(N));
+  float const& N_inverse{1.0f/N};
+  for (int i{0}; i < N; ++i) {
+    for (int j{0}; j <= i; ++j) { // questo for mi calcola solo la metà inferiore
+      if (i == j) {
+        matrix[i][j] = 0.f;
+      } else {
+        matrix[i][j] = std::accumulate(
+            patterns.begin(), patterns.end(), 0.f,
+            [N_inverse, i, j](float acc, std::vector<int> const& pattern) { // l'accumulate è identico a prima
+              return acc + (N_inverse * (pattern[i]) * (pattern[j]));
+            });
+        matrix[j][i] = matrix[i][j]; //sfrutto la simmetria
       }
     }
   }
@@ -83,13 +106,15 @@ double pattern_energy(std::vector<std::vector<float>> mat,
   return {energy * (-0.5)};
 }
 
-std::vector<int> recognize(std::vector<int> corrupt_pattern, std::vector<std::vector<float>> mat) {
+std::vector<int> recognize(std::vector<int> corrupt_pattern,
+                           std::vector<std::vector<float>> mat) {
   while (true) {
-      std::vector<int> evolved_pattern{evolve(mat, corrupt_pattern)};
-      if (evolved_pattern==evolve(mat, evolved_pattern)) {
-        return evolved_pattern;
-      }
-      else {continue;}
+    std::vector<int> evolved_pattern{evolve(mat, corrupt_pattern)};
+    if (evolved_pattern == evolve(mat, evolved_pattern)) {
+      return evolved_pattern;
+    } else {
+      continue;
+    }
   }
 }
 
