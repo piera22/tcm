@@ -2,9 +2,9 @@
 #include <fstream>
 #include <iostream>
 #include <numeric>
-#include <vector>
-#include <string>
 #include <sstream>
+#include <string>
+#include <vector>
 
 #include "tinyfiledialogs.hpp"
 
@@ -73,8 +73,8 @@ sf::VertexArray image_conversion(int const& N_base, int const& N_height,
 }
 
 class Hopfield {
-  int const& N_base;
-  int const& N_height;
+  int const& N_base_;
+  int const& N_height_;
   std::vector<std::vector<int>> patterns_;
   std::vector<sf::Sprite> images_;
   std::vector<double> matrix_;
@@ -110,31 +110,31 @@ class Hopfield {
   sf::VertexArray bw_conversion(const sf::Sprite& original_s) {
     // rendering
     sf::RenderTexture original_t;
-    original_t.create(N_base, N_height);
+    original_t.create(N_base_, N_height_);
     original_t.draw(original_s);
     original_t.display();  // finalizza il rendering
 
     sf::Image original{original_t.getTexture().copyToImage()};
-    sf::VertexArray image_bw(sf::Points, N_base * N_height);
+    sf::VertexArray image_bw(sf::Points, N_base_ * N_height_);
 
-    for (int i{0}; i < N_height; ++i) {
-      for (int j{0}; j < N_base; ++j) {
+    for (int i{0}; i < N_height_; ++i) {
+      for (int j{0}; j < N_base_; ++j) {
         (original.getPixel(j, i).r + original.getPixel(j, i).g +
          original.getPixel(j, i).b) /
                     3 >=
                 127
-            ? image_bw[N_height * i + j].color = sf::Color::White
-            : image_bw[N_height * i + j].color = sf::Color::Black;
+            ? image_bw[N_height_ * i + j].color = sf::Color::White
+            : image_bw[N_height_ * i + j].color = sf::Color::Black;
       }
     }
     return image_bw;
   }
 
   std::vector<int> get_pattern(sf::VertexArray bw) {
-    std::vector<int> pattern(N_base * N_height);
-    for (int i{0}; i < N_height; ++i) {
-      for (int j{0}; j < N_base; ++j) {
-        if (bw[N_height * i + j].color == sf::Color::White) {
+    std::vector<int> pattern(N_base_ * N_height_);
+    for (int i{0}; i < N_height_; ++i) {
+      for (int j{0}; j < N_base_; ++j) {
+        if (bw[N_height_ * i + j].color == sf::Color::White) {
           pattern.push_back(1);
         } else {
           pattern.push_back(-1);
@@ -150,14 +150,14 @@ class Hopfield {
   }
 
   void update_matrix() {
-    double N_inverse{1.0f / (N_base * N_height)};
-    for (int i{0}; i < N_base; ++i) {
+    double N_inverse{1.0f / (N_base_ * N_height_)};
+    for (int i{0}; i < N_base_; ++i) {
       for (int j{0}; j <= i;
            ++j) {  // questo for mi calcola solo la metà inferiore
         if (i == j) {
-          matrix_[i * N_base + j] = 0.f;
+          matrix_[i * N_base_ + j] = 0.f;
         } else {
-          matrix_[i * N_base + j] = std::accumulate(
+          matrix_[i * N_base_ + j] = std::accumulate(
               patterns_.begin(), patterns_.end(), 0.f,
               [N_inverse, i, j](
                   double acc,
@@ -165,14 +165,54 @@ class Hopfield {
                       pattern) {  // l'accumulatore è identico a prima
                 return acc + (N_inverse * (pattern[i]) * (pattern[j]));
               });
-          matrix_[j * N_base + i] =
-              matrix_[i * N_base + j];  // sfrutto la simmetria
+          matrix_[j * N_base_ + i] =
+              matrix_[i * N_base_ + j];  // sfrutto la simmetria
         }
       }
     }
   }
-};
 
+  void evolve(std::vector<int>& pattern) {
+    for (int i{0}; i != N_base_; ++i) {
+      double sum{0.};
+      for (long unsigned int j{0}; j != N_base_; ++j) {
+        sum += matrix_[i * N_base_ + j] * pattern[j];
+      }
+      pattern[i] = sign(sum);
+    }
+  };
+
+  double get_energy(std::vector<int> pattern) {
+    double energy{0.};
+    for (int i{0}; i != N_base_; ++i) {
+      for (int j{0}; j != N_base_; ++j) {
+        energy += matrix_[i * N_base_ + j] * pattern[i] * pattern[j];
+      }
+    }
+    return {energy * (-0.5)};
+  }
+
+  std::vector<int> recognize(std::vector<int> corrupt_pattern) {
+    int i{0};
+    while (true) {
+      ++i;
+      if (i == 50) {
+        return corrupt_pattern;  // se lo stato di equilibrio non converge
+                                 // interrompo il ciclo
+      }
+      std::vector<int> corrupt_prev{corrupt_pattern};
+      evolve(corrupt_pattern);
+      std::cout << "Energy: " << get_energy(corrupt_pattern) << "\n"
+                << "\n";
+      if (corrupt_prev == corrupt_pattern) {
+        return corrupt_prev;
+      } else {
+        evolve(corrupt_pattern);
+        continue;
+      }
+    }
+  }
+};
 std::vector<int> get_pattern(int const& N_base, int const& N_height,
                              sf::VertexArray bw) {
   std::vector<int> pattern(N_base * N_height);
@@ -216,7 +256,7 @@ build_alter(  // costruzione della matrice sfruttando la simmetria
 }
 
 std::vector<double> mat_2D(int const& N_base,
-                          std::vector<std::vector<int>> const& patterns) {
+                           std::vector<std::vector<int>> const& patterns) {
   std::vector<double> matrix(N_base * N_base);
   double N_inverse{1.0f / (N_base * N_base)};
   for (int i{0}; i < N_base; ++i) {
@@ -243,7 +283,7 @@ std::vector<double> mat_2D(int const& N_base,
 
 void evolve(int const& N_base,
             std::vector<double> mat,  // funzione per far evolvere con return
-                                     // type nullo, utilizzabile in una classe
+                                      // type nullo, utilizzabile in una classe
             std::vector<int>& pattern) {
   for (int i{0}; i != N_base; ++i) {
     double sum{0.};
@@ -255,8 +295,8 @@ void evolve(int const& N_base,
 }
 
 double pattern_energy(int const& N_base,
-                     std::vector<double> mat,  // energia della rete
-                     std::vector<int> pattern) {
+                      std::vector<double> mat,  // energia della rete
+                      std::vector<int> pattern) {
   double energy{0.f};
   for (int i{0}; i != N_base; ++i) {
     for (int j{0}; j != N_base; ++j) {
@@ -353,6 +393,7 @@ int main() {
   auto matrix_copy{mat_from_file()};
   if (matrix_copy != matrix) {
     std::cout << "Errato..." << "\n";
+  } else {
+    std::cout << "Daje" << "\n";
   }
-  else {std::cout << "Daje" << "\n";}
 }
