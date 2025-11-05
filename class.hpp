@@ -22,6 +22,7 @@ class Simulation {
   float b_err;
   TF1* function;
   TF1* norm_function;
+  TF1* function_random_pars;
   TH1F* histo_theory;
   TCanvas* canvas;
 
@@ -30,13 +31,16 @@ class Simulation {
   double get_mean(std::vector<double> vec);
   double get_std_dev(std::vector<double> vec);
   std::vector<double> error_propagation();
-  double random_extraction();  // estrae un numero in base alla funzione
   TH1F accumulate_random();
+  TH1F accumulate_random_pars();
   //TF1* chi_confrontation(int N, int bins);
-  TF1* scale_function_to_histogram();
   void draw_all();
-  void regen_unc(int N_regen);
-  void bin_smeering(int N_regen);
+  double regen_unc(int N_regen);
+  double bin_smeering();
+  double regen_unc_randompars(int N_regen);
+  double bin_smeering_randompars();
+  void sigma_confrontation(int N_regen);
+  void sigma_confrontation_randompars(int N_regen);
 };
 
 #endif

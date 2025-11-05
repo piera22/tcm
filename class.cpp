@@ -22,6 +22,9 @@ Simulation::Simulation(int N_, int bins_) {
                           (3.14 / k));
   norm_function->SetParameters(
       k, phi, b, function->Integral(function->GetXmin(), function->GetXmax()));
+
+  function_random_pars = new TF1("function_random_pars",
+                                 "((cos([0]*x+[1]))^2 + [2])", 0., (3.14 / k));
   canvas = new TCanvas("canvas", "Distribuzione", 0, 0, 800, 600);
   double xmin = function->GetXmin();
   double xmax = function->GetXmax();
@@ -42,21 +45,20 @@ Simulation::Simulation(int N_, int bins_) {
   canvas->SetTicks();
 }
 
-double Simulation::random_extraction() {
-  double x{function->GetRandom()};
-  return x;
-};
 double Simulation::get_mean(std::vector<double> vec) {
   double N{vec.size()};
   return {std::accumulate(vec.begin(), vec.end(), 0.) / N};
 };
+
+
+
 double Simulation::get_std_dev(std::vector<double> vec) {
   double N{vec.size()};
   double mean{get_mean(vec)};
   double sq_sum = std::accumulate(vec.begin(), vec.end(), 0.0,
-                                  [mean](double acc, double val) {
-                                    return acc + (val - mean) * (val - mean);
-                                  });
+                    [mean](double acc, double val) {
+                      return acc + (val - mean) * (val - mean);
+                    });
   return std::sqrt(sq_sum / N);
 }
 
@@ -69,50 +71,55 @@ TH1F Simulation::accumulate_random() {
   TH1F histo = TH1F("histo", "Extractions", bins, function->GetXmin(),
                     function->GetXmax());
   for (int i{0}; i != N; ++i) {
-    histo.Fill(random_extraction());
+    histo.Fill(function->GetRandom());
   }
   canvas->Update();
   return histo;
 };
 
-TF1* Simulation::scale_function_to_histogram() {
-  double xmin = function->GetXmin();
-  double xmax = function->GetXmax();
-
-  // Calcola l'integrale della funzione teorica
-  double integral_function = function->Integral(xmin, xmax);
-
-  // Calcola l'integrale dell'istogramma simulato
-  TH1F histo = accumulate_random();  // oppure usa un istogramma già generato
-  double integral_histogram = histo.Integral();
-
-  // Calcola il fattore di scala
-  double scale_factor = integral_histogram / integral_function;
-
-  // Crea una nuova funzione scalata
-  TF1* scaled_function = new TF1("scaled_function",
-                            "([3]*((cos([0]*x+[1]))^2 + [2]))", xmin, xmax);
-  scaled_function->SetParameters(k, phi, b, scale_factor);
-  scaled_function->SetLineColor(kMagenta);
-  scaled_function->SetLineWidth(2);
-  return scaled_function;
+TH1F Simulation::accumulate_random_pars() {
+  function->SetParameters(gRandom->Gaus(k, k_err), gRandom->Gaus(phi, phi_err),
+                          gRandom->Gaus(b, b_err));
+  TH1F histo_pars = TH1F("histo", "Extractions", bins, function->GetXmin(),
+                         function->GetXmax());
+  for (int i{0}; i != N; ++i) {
+    histo_pars.Fill(function->GetRandom());
+  }
+  canvas->Update();
+  return histo_pars;
 }
 
 void Simulation::draw_all() {
   canvas->cd();
+
+  double xmin = function->GetXmin();
+  double xmax = function->GetXmax();
+
+  // Istogramma simulato
   auto histo = accumulate_random();
   histo.SetLineColor(kBlue);
   histo.SetFillColorAlpha(kBlue, 0.3);
-  //histo.Draw("SAME");
+  histo.SetTitle("Distribuzione simulata e funzione teorica; x; N eventi");
 
-  auto scaled_function = scale_function_to_histogram();  // crea la funzione scalata
-  scaled_function->Draw("SAME");  // disegna la funzione scalata
+  histo.Scale(1.0 / histo.Integral("width"));
+  histo.Draw("HIST");  // 🔹 primo draw SENZA "SAME"
+
+  // Calcola l'integrale della funzione teorica
+  double integral_function = function->Integral(xmin, xmax);
+  double integral_histogram = histo.Integral();
+
+  double scale_factor = integral_histogram / integral_function;
+
+  // Se vuoi, disegna anche la funzione teorica non scalata
+  function->SetLineColor(kRed);
+  function->SetLineStyle(2);
+  norm_function->Draw("SAME");
 
   canvas->Update();
   canvas->SaveAs("histogram.png");
 }
 
-void Simulation::regen_unc(int N_regen) {  // prendo media e stddev di ogni bin
+double Simulation::regen_unc(int N_regen) {  // prendo media e stddev di ogni bin
   std::vector<double> bin_means{};
   std::vector<double> bin_devstds{};
   for (int i_bin{0}; i_bin != bins; ++i_bin) {
@@ -122,7 +129,7 @@ void Simulation::regen_unc(int N_regen) {  // prendo media e stddev di ogni bin
       ibin_values.push_back(hist.GetBinContent(i_bin + 1));
     }
     bin_means.push_back(get_mean(ibin_values));
-    bin_devstds.push_back(get_std_dev(ibin_values));
+    bin_devstds.push_back(get_std_dev(ibin_values) / std::sqrt(N_regen));
   }
   std::vector<int> x_values(bins);
   std::iota(x_values.begin(), x_values.end(),
@@ -135,54 +142,141 @@ void Simulation::regen_unc(int N_regen) {  // prendo media e stddev di ogni bin
   graph.Draw("APE");
   canvas->Update();
   canvas->SaveAs("tgraph.png");
+
+  double scarts {0};
+  double sum41 {0};
+
+  for (int i = 0; i<bins; ++i){
+    sum41 += pow((bin_means[i] - histo_theory->GetBinContent(i+1)),2);
+  }
+
+  double sigma {std::sqrt(sum41/N)};
+  return sigma;
+
 }
 
-/*void Simulation::bin_smeering(int N_regen) {
-  // Parametri della gaussiana con cui far fluttuare : media e radice valore
-  // atteso
-  auto hist{accumulate_random(N, bins)};
-    // intervallo costruzione istogramma
-    // intervallo integrazione smeering
+double Simulation::bin_smeering() {
+  canvas->cd();
+  TH1F* histo_gaus = new TH1F("histo_gaus", "Istogramma con valori fluttuati",
+                              bins, function->GetXmin(), function->GetXmax());
 
-  // costruzione di istogramma "teorico" per confronto:
-
-
-  // smeering
-  std::vector<double> std_dev_bin{};
   for (int i_bin{0}; i_bin != bins; ++i_bin) {
-    std::vector<double> fluctuated_values_bin{};
-    double interval_acc{
-      norm_function->GetXmin()};
-    for (int i_reg{0}; i_reg != N_regen; ++i) {
-      auto mean{histo_theory.GetBinContent(i_bin + 1)};
-      auto dev_std{
-          std::sqrt(N * norm_function->Integral(
-                            interval_acc,
-                            interval_acc +
-                                (norm_function->GetXmax()) / bins))  // Nexp
-      };
-      interval_acc += norm_function->GetXmax() / bins;
-      auto random_gaus{
-          TMath::Gaus(mean, dev_std)};  // questo è il valore del bin fluttuato
-      fluctuated_values_bin.push_back(random_gaus);
-    }
-    std_dev_bin.push_back(
-        get_std_dev(fluctuated_values_bin));  // vettore di devstd dei bin
-  }
-}*/
+    auto mean{histo_theory->GetBinContent(i_bin + 1)};
+    auto dev_std{sqrt(mean)};
+    auto random_gaus{
+        gRandom->Gaus(mean, dev_std)};  // questo è il valore del bin fluttuato
 
-/*TF1* Simulation::chi_confrontation(int N, int bins) {
-  TF1* function_fit =
-      new TF1("function_fit", "((cos([0]*x+[1]))^2 + [2])", 0., 3.14 / k);
-  TGraph graph = TGraph(N);
-  for (int i{0}; i!=N; ++i) {
-    double x = ;
-    double y{};
-    graph.AddPoint(x, y);
+    histo_gaus->SetBinContent(i_bin + 1, random_gaus);
   }
-  graph.Fit(function_fit);
-  std::cout << "k = " << function_fit->GetParameter(0) << "\n";
-  std::cout << "phi = " << function_fit->GetParameter(1) << "\n";
-  std::cout << "b = " << function_fit->GetParameter(2) << "\n";
-  return function_fit;
-};*/
+  histo_gaus->Draw();
+  canvas->Update();
+  canvas->SaveAs("histogaus.png");
+
+  double scarts {0};
+  double sum41 {0};
+
+  for (int i = 0; i<bins; ++i){
+    sum41 += pow((histo_gaus->GetBinContent(i+1) - histo_theory->GetBinContent(i+1)),2);
+  }
+
+  double sigma {std::sqrt(sum41/N)};
+  return sigma;
+}
+
+double Simulation::regen_unc_randompars(int N_regen) {
+  function->SetParameters(gRandom->Gaus(k, k_err), gRandom->Gaus(phi, phi_err),
+                          gRandom->Gaus(b, b_err));
+  TH1F* histo_theory_rand =
+      new TH1F("histo_theory_rand", "Istogramma teorico con parametri casuali",
+               bins, function->GetXmin(), function->GetXmax());
+  std::vector<double> bin_means{};
+  std::vector<double> bin_devstds{};
+  for (int i_bin{0}; i_bin != bins; ++i_bin) {
+    std::vector<double> ibin_values{};
+    for (int i_gen{0}; i_gen != N_regen; ++i_gen) {
+      auto hist{accumulate_random_pars()};
+      ibin_values.push_back(hist.GetBinContent(i_bin + 1));
+    }
+    bin_means.push_back(get_mean(ibin_values));
+    bin_devstds.push_back(get_std_dev(ibin_values) / std::sqrt(N_regen));
+  }
+  std::vector<int> x_values(bins);
+  std::iota(x_values.begin(), x_values.end(),
+            1);  // riempie il vettore con naturali
+
+  std::vector<double> x_double(x_values.begin(), x_values.end());
+  TGraphErrors graph = TGraphErrors(bins, x_double.data(), bin_means.data(), 0,
+                                    bin_devstds.data());
+  canvas->cd();
+  graph.Draw("APE");
+  canvas->Update();
+  canvas->SaveAs("tgraphrand.png");
+
+  double scarts {0};
+  double sum41 {0};
+
+  for (int i = 0; i<bins; ++i){
+    sum41 += pow((bin_means[i] - histo_theory_rand->GetBinContent(i+1)),2);
+  }
+
+  double sigma {std::sqrt(sum41/N)};
+  return sigma;
+
+}
+
+double Simulation::bin_smeering_randompars() {
+  canvas->cd();
+  function->SetParameters(gRandom->Gaus(k, k_err), gRandom->Gaus(phi, phi_err),
+                          gRandom->Gaus(b, b_err));
+  TH1F* histo_theory_rand =
+      new TH1F("histo_theory_rand", "Istogramma teorico con parametri casuali",
+               bins, function->GetXmin(), function->GetXmax());
+  double xmin = function->GetXmin();
+  double xmax = function->GetXmax();
+  double bin_width = (xmax - xmin) / bins;
+  double norm = function->Integral(xmin, xmax);
+  for (int i = 0; i < bins; ++i) {
+    double x_low = xmin + i * bin_width;
+    double x_high = x_low + bin_width;
+    double bin_integral = function->Integral(x_low, x_high);
+    double events = N * bin_integral / norm;
+    histo_theory_rand->SetBinContent(
+        i + 1,
+        events);  // ho generato l'istogramma teorico con parametri casuali
+  }
+  TH1F* histo_gaus_rand =
+      new TH1F("histo_gaus_rand", "Istogramma con valori fluttuati", bins,
+               function->GetXmin(), function->GetXmax());
+
+  for (int i_bin{0}; i_bin != bins; ++i_bin) {
+    auto mean{histo_theory_rand->GetBinContent(i_bin + 1)};
+    auto dev_std{sqrt(mean)};
+    auto random_gaus{
+        gRandom->Gaus(mean, dev_std)};  // questo è il valore del bin fluttuato
+
+    histo_gaus_rand->SetBinContent(i_bin + 1, random_gaus);
+  }
+  histo_gaus_rand->Draw();
+  canvas->Update();
+  canvas->SaveAs("histogausrand.png");
+
+  double scarts {0};
+  double sum41 {0};
+
+  for (int i = 0; i<bins; ++i){
+    sum41 += pow((histo_gaus_rand->GetBinContent(i+1) - histo_theory->GetBinContent(i+1)),2);
+  }
+
+  double sigma {std::sqrt(sum41/N)};
+  return sigma;
+}
+
+void Simulation::sigma_confrontation(int N_regen){
+  std::cout << bin_smeering()/regen_unc(N_regen) << '\n';
+}
+
+void Simulation::sigma_confrontation_randompars(int N_regen){
+  std::cout << bin_smeering_randompars()/regen_unc_randompars(N_regen) << '\n';
+}
+
+
